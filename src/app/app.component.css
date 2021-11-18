@@ -1,0 +1,26 @@
+#pictureUser {
+  width: 3rem;
+  height: auto;
+  margin-right: .5rem;
+  vertical-align: middle;
+  clip-path: circle(1.5rem at center);
+}
+
+#userName {
+  margin-top: 2rem;
+  margin-left: 2rem;
+}
+
+.container {
+  margin-top: 2rem;
+}
+
+.right {
+  margin-left: 2rem;
+}
+
+@media (max-width: 344px) {
+  .profile-name {
+    display: none;
+  }
+}
