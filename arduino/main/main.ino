@@ -47,18 +47,16 @@ void setup() {
 void loop() {
   EthernetClient client = server.available();
   if (client) {
-    String res = client.readString();
-    String params[3];
-    int index = 0;
-    int start = 0;
-    for (int i = 0; i < 3; i++) {
-      index = res.indexOf(' ', index);
-      params[i] = res.substring(start, index);
-      start = index;
-      index++;
-    }
+    String res = client.readStringUntil('\n');
+    int str_len = res.length() + 1; 
+    char char_array[str_len];
+    res.toCharArray(char_array, str_len);
+    char* method = strtok(char_array, " ");
+    char* path = strtok(0, " ");
+    Serial.println(method);
+    Serial.println(path);
     if (client.available()) {
-      if (params[0] != "GET") {
+      if (method != "GET") {
         sendMethodNotAllowed(client);
       } else {
         sendHeaders(client);
