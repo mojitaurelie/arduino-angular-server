@@ -1,12 +1,12 @@
 #include <SPI.h>
 #include <Ethernet.h>
-#include <SD.h>
+#include <SdFat.h>
 #include <String.h>
 
 byte mac[] = {
   0xA8, 0x61, 0x0A, 0xAE, 0x6F, 0x4A
 };
-
+SdFat SD;
 EthernetServer server(80);
 
 void setup() {
@@ -17,15 +17,17 @@ void setup() {
   }
   Serial.println("Arduino Ethernet WebServer");
 
-  Serial.print("Initializing SD card...");
+  Serial.print("Starting SD...");
   if (!SD.begin(4)) {
-    Serial.println("initialization failed!");
+    Serial.println("failed");
     while (true) {
-      delay(1);
+      delay(15);
     }
   }
-  
+  else Serial.println("ok");
+
   Serial.println("Initialize Ethernet with DHCP:");
+
   if (Ethernet.begin(mac) == 0) {
     Serial.println("Failed to configure Ethernet using DHCP");
     if (Ethernet.hardwareStatus() == EthernetNoHardware) {
@@ -34,7 +36,7 @@ void setup() {
       Serial.println("Ethernet cable is not connected.");
     }
     while (true) {
-      delay(1);
+      delay(15);
     }
   }
 
@@ -47,37 +49,50 @@ void setup() {
 void loop() {
   EthernetClient client = server.available();
   if (client) {
-    String res = client.readStringUntil('\n');
-    int str_len = res.length() + 1; 
-    char char_array[str_len];
-    res.toCharArray(char_array, str_len);
-    char* method = strtok(char_array, " ");
-    char* path = strtok(0, " ");
-    Serial.println(method);
-    Serial.println(path);
-    if (client.available()) {
-      if (method != "GET") {
-        sendMethodNotAllowed(client);
-      } else {
-        sendHeaders(client);
+    SdFile file;
+    {
+      char* path;
+      {
+        String res = client.readStringUntil(" HTTP/1.1");
+        char char_array[res.length() + 1];
+        res.toCharArray(char_array, res.length() + 1);
+        strtok(char_array, " ");
+        path = strtok(0, " ");
+      }
+      if (strcmp(path, "/") == 0) {
+        path = "/index.html";
+      }
+      Serial.println(path);
+      if (!file.open(path)) {
+        sendNotFound(client);
+        delay(15);
+        client.stop();
       }
     }
-    delay(15);
-    client.stop();
+    {
+      char buf[25];
+      sendHeaders(client);
+      while (file.available())
+      {
+        file.read(buf, sizeof(buf));
+        client.write(buf, sizeof(buf));
+      }
+      delay(15);
+      client.stop();
+    }
   }
 }
 
 void sendHeaders(EthernetClient client) {
   client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: text/html");
-  client.println("Connection: close");  // the connection will be closed after completion of the response
+  client.println("Cache-Control: max-age=31536000");
+  client.println("Connection: close");
   client.println();
 }
 
-void sendMethodNotAllowed(EthernetClient client) {
-  client.println("HTTP/1.1 405 Method Not Allowed");
+void sendNotFound(EthernetClient client) {
+  client.println("HTTP/1.1 404 Not Found");
   client.println("Content-Type: text/html");
-  client.println("Allow: GET");
   client.println("Connection: close");  // the connection will be closed after completion of the response
   client.println();
   client.println("<!doctype html>");
@@ -85,8 +100,8 @@ void sendMethodNotAllowed(EthernetClient client) {
   client.println("<title>Arduino Dashboard</title>");
   client.println("</head>");
   client.println("<body>");
-  client.println("<h1>405 Method Not Allowed</h1>");
-  client.println("<p>the method received in the request-line is known by the origin server but not supported by the target resource.</p>");
+  client.println("<h1>404 Not Found</h1>");
+  client.println("<p>The requested URL was not found on this server.</p>");
   client.println("</body>");
   client.println("</html>");
   client.println();
