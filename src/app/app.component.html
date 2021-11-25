@@ -1,5 +1,5 @@
 <h4 id="userName">
-  <img id="pictureUser" src="/assets/profile.png"/>
+  <img id="pictureUser" src="/p.png"/>
   <span class="profile-name">
     Aurélie
   </span>
@@ -9,5 +9,8 @@
 </h4>
 
 <div class="container">
-  <h1>Salut</h1>
+  <div *ngFor="let s of sensors">
+    <h1>{{ s.name }}</h1>
+    <div>{{ s.value }}°C</div>
+  </div>
 </div>

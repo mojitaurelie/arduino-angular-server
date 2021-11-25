@@ -1,13 +1,9 @@
-#include <SPI.h>
 #include <Ethernet.h>
 #include <SdFat.h>
-#include <String.h>
+#include <OneWire.h>
 
-byte mac[] = {
-  0xA8, 0x61, 0x0A, 0xAE, 0x6F, 0x4A
-};
-SdFat SD;
 EthernetServer server(80);
+SdFat SD;
 
 void setup() {
   Ethernet.init(10);
@@ -17,17 +13,15 @@ void setup() {
   }
   Serial.println("Arduino Ethernet WebServer");
 
-  Serial.print("Starting SD...");
   if (!SD.begin(4)) {
-    Serial.println("failed");
+    Serial.println("Failed initialize SD Card");
     while (true) {
       delay(15);
     }
   }
-  else Serial.println("ok");
 
   Serial.println("Initialize Ethernet with DHCP:");
-
+  byte mac[] = { 0xA8, 0x61, 0x0A, 0xAE, 0x6F, 0x4A };
   if (Ethernet.begin(mac) == 0) {
     Serial.println("Failed to configure Ethernet using DHCP");
     if (Ethernet.hardwareStatus() == EthernetNoHardware) {
@@ -49,43 +43,70 @@ void setup() {
 void loop() {
   EthernetClient client = server.available();
   if (client) {
-    SdFile file;
     {
       char* path;
-      {
-        String res = client.readStringUntil(" HTTP/1.1");
-        char char_array[res.length() + 1];
-        res.toCharArray(char_array, res.length() + 1);
-        strtok(char_array, " ");
-        path = strtok(0, " ");
-      }
+      free(readStringUntil(client, ' '));
+      path = readStringUntil(client, ' ');
       if (strcmp(path, "/") == 0) {
+        free(path);
         path = "/index.html";
+        sendFile(path, client);
+      } else if (strcmp(path, "/sensors") == 0) {
+        free(path);
+        sendHeaders(client);
+        sendSensors(client);
+      } else {
+        sendFile(path, client);
+        free(path);
       }
-      Serial.println(path);
-      if (!file.open(path)) {
-        sendNotFound(client);
-        delay(15);
-        client.stop();
-      }
-    }
-    {
-      char buf[25];
-      sendHeaders(client);
-      while (file.available())
-      {
-        file.read(buf, sizeof(buf));
-        client.write(buf, sizeof(buf));
-      }
-      delay(15);
-      client.stop();
+      
     }
   }
+}
+
+void sendFile(char* path, EthernetClient client) {
+  SdFile file;
+  if (!file.open(path)) {
+    sendNotFound(client);
+    client.stop();
+  }
+  {
+    char buf[25];
+    sendHeaders(client);
+    while (file.available())
+    {
+      file.read(buf, sizeof(buf));
+      client.write(buf, sizeof(buf));
+    }
+    file.close();
+    client.stop();
+  }
+}
+
+void sendSensors(EthernetClient client) {
+  float temperature;
+  if (getTemperature(&temperature, true) != 0) {
+    client.print("[{ \"name\": \"Room temperature\", \"value\": ");
+    client.print(0);
+    client.print("}]");
+    client.stop();
+    return;
+  }
+  client.print("[{ \"name\": \"Room temperature\", \"value\": ");
+  client.print(temperature, 2);
+  client.print("}]");
+  client.stop();
 }
 
 void sendHeaders(EthernetClient client) {
   client.println("HTTP/1.1 200 OK");
   client.println("Cache-Control: max-age=31536000");
+  client.println("Connection: close");
+  client.println();
+}
+
+void sendInternalServerError(EthernetClient client) {
+  client.println("HTTP/1.1 500 Internal Server Error");
   client.println("Connection: close");
   client.println();
 }
@@ -105,4 +126,68 @@ void sendNotFound(EthernetClient client) {
   client.println("</body>");
   client.println("</html>");
   client.println();
+}
+
+byte getTemperature(float *temperature, byte reset_search) {
+  OneWire ds(2);
+  byte data[9], addr[8];
+  // data[] : Données lues depuis le scratchpad
+  // addr[] : Adresse du module 1-Wire détecté
+
+  if (reset_search) {
+    ds.reset_search();
+  }
+
+  if (!ds.search(addr)) {
+    // Pas de capteur
+    return 1;
+  }
+
+  if (OneWire::crc8(addr, 7) != addr[7]) {
+    // Adresse invalide
+    return 2;
+  }
+
+  if (addr[0] != 0x28) {
+    // Mauvais type de capteur
+    return 3;
+  }
+
+  ds.reset();
+  ds.select(addr);
+
+  ds.write(0x44, 1);
+  delay(800);
+
+  ds.reset();
+  ds.select(addr);
+  ds.write(0xBE);
+
+  for (byte i = 0; i < 9; i++) {
+    data[i] = ds.read();
+  }
+
+  *temperature = (int16_t) ((data[1] << 8) | data[0]) * 0.0625;
+
+  // Pas d'erreur
+  return 0;
+}
+
+char* readStringUntil(EthernetClient client, char c) {
+  char last = '\0';
+  char* result = malloc(sizeof(char) * 10);
+  for (byte i = 0; i < 9; i++) {
+    result[i] = ' ';
+  }
+  result[9] = '\0';
+  byte i = 0;
+  while (last != c && i < 9) {
+    last = client.read();
+    if (last != c) {
+      result[i] = last;
+      i++;
+    }
+  }
+  result[i] = '\0';
+  return result;
 }
